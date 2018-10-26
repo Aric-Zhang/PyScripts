@@ -4,7 +4,7 @@
 __author__ = "Aric-Zhang"
 
 import random
-
+import uuid
 
 DISK_SIZE = 100 * 1024 * 1024
 BLOCK_SIZE = 512 * 1024
@@ -106,6 +106,7 @@ class v_file:
     def __init__(self):
         max_size = 20 * 1024 * 1024
         self.size = random.randint(0, max_size)
+        self.name = uuid.uuid1()
 
     @property
     def num_of_blocks(self):
@@ -124,7 +125,7 @@ class v_file:
         return file_content
 
     def __str__(self):
-        return "----------------------\nfile info:\nsize:%d" % self.size
+        return "----------------------\nfile info:\nname:%s\nsize:%d" % (self.name, self.size)
 
 
 d = disk()
