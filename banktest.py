@@ -183,7 +183,8 @@ class counter(process):
         self.current_client = new_client
         self.time_left = self.current_client.service_time + 30
         new_client.destroy()
-        print(motor.get_time_via_sec() + " " +'%s is on service at %s' % (str(new_client), self.id))
+        print(motor.get_time_via_sec() + " " + '%s is on service at %s' %
+              (str(new_client), self.id))
 
     def update(self):
         self.time_left -= 1
@@ -231,6 +232,16 @@ class bank(list):
             c.enabled = state
 
 
+def summary():
+    total_clients_serviced = sum([len(x.past_clients) for x in client_pools])
+    all_clients_serviced = []
+    for c_p in client_pools:
+        all_clients_serviced += c_p.past_clients
+    average_waiting_time = sum(
+        [x.waiting_time for x in all_clients_serviced]) / len(all_clients_serviced)
+    return "%d clients serviced, with average waiting time %fs" % (total_clients_serviced, average_waiting_time)
+
+
 counters = bank()
 
 client_pools.sort(key=attrgetter('priority'), reverse=True)
@@ -261,6 +272,7 @@ def test():
 
     for pool in client_pools:
         print(pool)
+    print(summary())
 
 
 test()
