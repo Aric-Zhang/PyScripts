@@ -6,7 +6,7 @@ CALL_WAITING_TIME = 30
 MAX_TIME = 0xffffffff
 
 pre_waiting_time = 15 * 60  # 取号在上班之前开始的时间
-pre_client_num_expectation = 30  # 等待人数期望值
+pre_client_num_expectation = 50  # 等待人数期望值
 
 # 队列池
 client_pools = []
@@ -25,6 +25,9 @@ def get_time_via_sec(seconds):
 
 
 class process_motor(list):
+    '''
+    按秒驱动模拟的引擎类
+    '''
 
     def __init__(self, total_time_length):
         self.total_time_length = total_time_length
@@ -34,6 +37,9 @@ class process_motor(list):
         self.check_points = []
 
     def process_one_shot(self):
+        '''
+        仅把当前状态向前推进一步
+        '''
         # print(len(self))
         for process in self:
             if process.enabled:
@@ -41,6 +47,9 @@ class process_motor(list):
         self.current_time += 1
 
     def process(self):
+        '''
+        最外层大循环，调用所有update完成全部状态的逐秒更新
+        '''
         for i in range(self.total_time_length):
             if self.time_left > 20 * 60:
                 if generate_client_by_chance():
@@ -69,7 +78,7 @@ class process_motor(list):
             if self.current_time == self.start_time + self.check_points[0]:
                 self.check_points.pop(0)
                 print(summary())
-                input('press enter to continue...')
+                input('press any key to continue...')
         except IndexError:
             pass
 
@@ -80,6 +89,8 @@ motor = process_motor(8 * 60 * 60)
 class process:
     '''
     随时间变化的类
+    提供回调函数供motor调用。回调函数中提供motor按时间或事件调用的事件
+    通过继承实现具体功能，参考MonoBehavoir的设计
     '''
 
     def __init__(self, enabled=True):
@@ -96,13 +107,19 @@ class process:
 class client_pool(list):
     '''
     一个队列
+    通过继承增加对象池应有的功能
     '''
 
-    def __init__(self, *, name='default_pool', priority=0):
+    def __init__(self, *, name='default_pool', priority=0, weight=1):
         self.pool_name = name
         self.priority = priority
         self.current_number = 0
         self.past_clients = []
+        if weight < 0:
+            raise ValueError('weight must be greater than 0')
+        if isinstance(weight, int) != True:
+            raise TypeError('weight must be integer')
+        self.weight = weight
         client_pools.append(self)
 
     def get_new_service_number(self):
@@ -124,6 +141,8 @@ class client_pool(list):
             result_str += (str(c) + "\n")
         result_str += "clients serviced:%d\n" % len(self.past_clients)
         result_str += "average waiting time:%fs\n" % self.get_average_waiting_time()
+        result_str += "queue expected waiting time:%fs\n" % counters.get_expected_waiting_time(
+            self)
         return result_str
 
     def get_average_waiting_time(self):
@@ -135,9 +154,10 @@ class client_pool(list):
         return sum(total_waiting_time) / len(total_waiting_time)
 
 
-corporate_pool = client_pool(name="C", priority=2)  # corporate account
-vip_pool = client_pool(name="V", priority=1)        # vip account
-private_pool = client_pool(name="P")       # personal account
+corporate_pool = client_pool(
+    name="C", priority=2, weight=2)  # corporate account
+vip_pool = client_pool(name="V", priority=1, weight=3)        # vip account
+private_pool = client_pool(name="P", weight=4)       # personal account
 
 
 class client(process):
@@ -168,21 +188,38 @@ class client(process):
         self.pool.past_clients.append(self)
 
 
+def choose_client_pool_by_weight():
+    '''
+    根据权重选择某一个队列
+    '''
+    client_pool_list_to_choose = []
+    for pool in client_pools:
+        client_pool_list_to_choose += [pool] * pool.weight
+    return random.choice(client_pool_list_to_choose)
+
+
 def generate_pre_waiting_client():
+    '''
+    在开业之前生成预先等待的符合特定期望值数量的客户
+    '''
     chance_per_sec = pre_client_num_expectation / pre_waiting_time
     for i in range(pre_waiting_time):
         seed = random.random()
         if seed <= chance_per_sec:
-            client(random.choice(client_pools),
+            client(choose_client_pool_by_weight(),
                    random.choice(service_time_length))
         motor.process_one_shot()
 
 
 def generate_client_by_chance():
+    '''
+    在营业中生成客户
+    '''
     chance_per_sec = service_speed
     seed = random.random()
     if seed <= chance_per_sec:
-        client(random.choice(client_pools), random.choice(service_time_length))
+        client(choose_client_pool_by_weight(),
+               random.choice(service_time_length))
         return True
     return False
 
@@ -210,6 +247,7 @@ class counter(process):
     def update(self):
         self.time_left -= 1
         if self.time_left <= 0:
+            counters.alloc_counters(client_pools)
             try:
                 self.service_next_client(self.current_pool.pop(0))
             except IndexError:
@@ -228,6 +266,7 @@ class counter(process):
                                 continue
                         except IndexError:
                             print('counter %s no client to service' % self.id)
+                            break
 
     def set_current_pool(self, pool):
         if isinstance(pool, client_pool) != True:
@@ -275,10 +314,12 @@ class bank(list):
         for c in self:
             c.enabled = state
 
-    def alloc_counters(self, pools):
+    def alloc_counters(self, pools, max_recursion=5):
         '''
         分配柜台给不同的客户队列
         '''
+        if max_recursion <= 0:
+            return
         num_of_pools = len(client_pools)
         try:
             getattr(self, 'allocated')
@@ -291,6 +332,7 @@ class bank(list):
                                     continue
                                 self.__realloc_pool(
                                     pools[(i + j) % num_of_pools], pools[i])
+                                self.alloc_counters(pools, max_recursion - 1)
                                 break
                         except IndexError:
                             print('allocation failed:no avaliable counter')
@@ -330,7 +372,7 @@ class bank(list):
             print('counter not allocated')
             raise
 
-        #print([x.current_pool.pool_name for x in self])
+        # print([x.current_pool.pool_name for x in self])
 
         if len(pool) == 0:
             return 0
@@ -340,7 +382,7 @@ class bank(list):
         # 获取柜台剩余服务时间列表
         clients_service_time = [x.service_time for x in pool]
         clients_waiting_time = [0 for x in pool]  # 客户已经等待的时间
-        #start_time = 0
+        # start_time = 0
         total_waiting_time = 0
         for client in pool:
             try:
@@ -368,14 +410,18 @@ class bank(list):
                     counters_time_left[i] += clients_service_time.pop(0) + 30
                     break
             total_waiting_time += clients_waiting_time.pop(0)
-        #print(pool.pool_name + str(total_waiting_time))
+        # print(pool.pool_name + str(total_waiting_time))
         return total_waiting_time / len(pool)
+
+    def get_expected_waiting_time(self, pool):
+        return self.__expected_average_waiting_time(pool)
 
 
 def summary():
     result_str = "-----------check summary-----------\n"
     for pool in client_pools:
         result_str += str(pool)
+    result_str += str([x.current_pool.pool_name for x in counters]) + '\n'
 
     total_clients_serviced = sum([len(x.past_clients) for x in client_pools])
     all_clients_serviced = []
@@ -410,12 +456,10 @@ def test():
     generate_pre_waiting_client()
     counters.alloc_counters(client_pools)
     counters.set_business(True)
-    for pool in client_pools:
-        print(pool)
-    '''
+
     motor.set_supervise_check_point(
         int(input('enter a check point in second:')))
-    '''
+
     motor.process()
 
     print(summary())
