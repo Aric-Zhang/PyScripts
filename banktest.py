@@ -1,4 +1,5 @@
 import random
+import copy
 from operator import attrgetter
 
 COUNTER_NUM = 9
@@ -6,7 +7,7 @@ CALL_WAITING_TIME = 30
 MAX_TIME = 0xffffffff
 
 pre_waiting_time = 15 * 60  # 取号在上班之前开始的时间
-pre_client_num_expectation = 50  # 等待人数期望值
+pre_client_num_expectation = 30  # 等待人数期望值
 
 # 队列池
 client_pools = []
@@ -54,6 +55,7 @@ class process_motor(list):
             if self.time_left > 20 * 60:
                 if generate_client_by_chance():
                     counters.alloc_counters(client_pools)
+                    counters.balance(max_recursion=2)
             for process in self:
                 if process.enabled:
                     process.update()
@@ -247,11 +249,12 @@ class counter(process):
     def update(self):
         self.time_left -= 1
         if self.time_left <= 0:
-            counters.alloc_counters(client_pools)
             try:
                 self.service_next_client(self.current_pool.pop(0))
+                counters.alloc_counters(client_pools)
             except IndexError:
                 if self.time_left == 0:
+                    '''
                     current_index = client_pools.index(self.current_pool)
                     while True:
                         try:
@@ -267,6 +270,14 @@ class counter(process):
                         except IndexError:
                             print('counter %s no client to service' % self.id)
                             break
+                    '''
+                    self.set_current_pool(
+                        counters.get_most_urgent_pool(client_pools))
+                    try:
+                        self.service_next_client(self.current_pool.pop(0))
+                        counters.alloc_counters(client_pools)
+                    except IndexError:
+                        print('counter %s no client to service' % self.id)
 
     def set_current_pool(self, pool):
         if isinstance(pool, client_pool) != True:
@@ -320,7 +331,7 @@ class bank(list):
         '''
         if max_recursion <= 0:
             return
-        num_of_pools = len(client_pools)
+        num_of_pools = len(pools)
         try:
             getattr(self, 'allocated')
             while True:
@@ -348,6 +359,18 @@ class bank(list):
                     self[counter_index].set_current_pool(pool)
                     counter_index += 1
             self.alloc_counters(client_pools)
+
+    def get_state(self, pools=client_pools):
+        '''
+        返回当前各队列等待时间关系是否符合要求
+        '''
+        num_of_pools = len(client_pools)
+        for i in range(num_of_pools - 1):
+            if self.__expected_average_waiting_time(pools[i]) > self.__expected_average_waiting_time(pools[i + 1]):
+                print('bad check')
+                return False
+        print('good check')
+        return True
 
     def __num_of_counter_service_pool(self, pool):
         '''
@@ -413,8 +436,52 @@ class bank(list):
         # print(pool.pool_name + str(total_waiting_time))
         return total_waiting_time / len(pool)
 
+    def get_most_urgent_pool(self, client_pools=client_pools):
+        '''
+        返回等待时间最长的队列
+        '''
+        return max(client_pools, key=lambda pool: self.__expected_average_waiting_time(pool))
+
+    def get_most_bounteous_pool(self, client_pools=client_pools):
+        '''
+        返回最可能宽裕的队列
+        '''
+        pool_list = sorted(
+            client_pools, key=lambda pool: self.__expected_average_waiting_time(pool))
+        for pool in pool_list:
+            if self.check_pool_on_service_state(pool) != True:
+                continue
+            elif len(pool) > 0 and self.__num_of_counter_service_pool(pool) <= 1:
+                continue
+            else:
+                return pool
+        return None
+
     def get_expected_waiting_time(self, pool):
         return self.__expected_average_waiting_time(pool)
+
+    def __try_realloc_pool(self, original_pool, new_pool):
+        '''
+        尝试改变分配，若不符合要求则回滚
+        '''
+        simu_bank = copy.copy(self)
+        simu_bank.enabled = False
+        simu_bank.__realloc_pool(original_pool, new_pool)
+        print("%s to %s " % (original_pool.pool_name, new_pool.pool_name), end="")
+        if simu_bank.get_state():
+            self.__realloc_pool(original_pool, new_pool)
+            print('balanced')
+            return True
+        print('balance refused')
+        return False
+
+    def balance(self, *, max_recursion=2):
+        '''
+        平衡柜台分配
+        '''
+        for i in range(max_recursion):
+            if self.__try_realloc_pool(self.get_most_bounteous_pool(), self.get_most_urgent_pool()) != True:
+                break
 
 
 def summary():
@@ -422,6 +489,10 @@ def summary():
     for pool in client_pools:
         result_str += str(pool)
     result_str += str([x.current_pool.pool_name for x in counters]) + '\n'
+
+    result_str += "most urgent pool:%s\n" % counters.get_most_urgent_pool(
+        client_pools).pool_name
+    result_str += "most bounteous pool:%s\n" % counters.get_most_bounteous_pool().pool_name
 
     total_clients_serviced = sum([len(x.past_clients) for x in client_pools])
     all_clients_serviced = []
