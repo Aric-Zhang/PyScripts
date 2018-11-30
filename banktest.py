@@ -7,7 +7,7 @@ CALL_WAITING_TIME = 30
 MAX_TIME = 0xffffffff
 
 pre_waiting_time = 15 * 60  # 取号在上班之前开始的时间
-pre_client_num_expectation = 30  # 等待人数期望值
+pre_client_num_expectation = 50  # 等待人数期望值
 
 # 队列池
 client_pools = []
@@ -454,7 +454,9 @@ class bank(list):
             elif len(pool) > 0 and self.__num_of_counter_service_pool(pool) <= 1:
                 continue
             else:
+                print("most bounteous_pool:%s" % pool.pool_name)
                 return pool
+
         return None
 
     def get_expected_waiting_time(self, pool):
@@ -464,6 +466,8 @@ class bank(list):
         '''
         尝试改变分配，若不符合要求则回滚
         '''
+        if original_pool == None:
+            raise TypeError('original pool cannnot be none')
         simu_bank = copy.copy(self)
         simu_bank.enabled = False
         simu_bank.__realloc_pool(original_pool, new_pool)
@@ -479,9 +483,20 @@ class bank(list):
         '''
         平衡柜台分配
         '''
+
+        if self.get_state() != True:
+            self.alloc_counters(client_pools)
+
         for i in range(max_recursion):
-            if self.__try_realloc_pool(self.get_most_bounteous_pool(), self.get_most_urgent_pool()) != True:
-                break
+            try:
+                if self.__try_realloc_pool(self.get_most_bounteous_pool(), self.get_most_urgent_pool()) != True:
+                    break
+            except TypeError:
+                return
+        '''
+        if self.get_state() != True:
+            self.alloc_counters(client_pools)
+        '''
 
 
 def summary():
