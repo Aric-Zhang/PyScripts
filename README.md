@@ -8,9 +8,12 @@ This assignment involves two distinct implementations, stored in the files `Cal.
 
 ## **Assignment 2: Simulating Bank Operations**
 
-This task simulates the daily operations of a bank, incorporating three client types: corporate clients, private clients, and VIP clients. Each client type has distinct service time requirements. The bank operates multiple service windows, each initially designated to serve a particular client type. However, a window may switch to serving another client type once the demand for its initial type has been fully satisfied. Clients of different types queue in advance, and new clients continuously join the queues throughout the bank's operating hours.
+This is an exercise in numerical modeling involving Queueing Theory.
 
-Critical performance criteria include ensuring that the average waiting time for VIP clients does not exceed that of regular clients, and the average waiting time for corporate clients does not exceed that of private clients. The program should simulate and output the bank's customer service process over the course of a day, detailing events such as client arrivals, queuing, service initiation, and completion.
+1. The bank possesses a total of 9 service windows.
+2. Customers are categorized into three classes: corporate, VIP, and ordinary individuals. The average service speeds must adhere to the hierarchy corporate > VIP > ordinary individual.
+3. At any point when there are customers of a given class waiting, at least one window must be dedicated to serving that class.
+4. The bank operates for 8 hours, with approximately 30 people already waiting prior to opening, after which the expected number of waiting customers remains essentially constant.
 
 Two versions of the implementation are provided, housed in the files `banktest.py` and `bank2.py`, respectively.
 
